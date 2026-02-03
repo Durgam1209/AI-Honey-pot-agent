@@ -24,9 +24,13 @@ def health_check():
     return {"status": "Agent is awake!", "endpoint": "/honeypot/stream"}
 
 @app.post("/honeypot/message", response_model=HoneypotResponse)
-def handle_message(data: MessageRequest, x_api_key: str = Header(None)):
+async def handle_message(request: Request, x_api_key: str = Header(None)):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
+
+    raw_body = await request.json()
+    print(f"DEBUG - Incoming Tester Data: {raw_body}")
+    data = MessageRequest.model_validate(raw_body)
 
     add_message(data.conversation_id, data.message)
     history = get_history(data.conversation_id)

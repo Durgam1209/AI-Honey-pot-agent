@@ -2,8 +2,15 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 class MessageRequest(BaseModel):
-    conversation_id: str
-    message: str
+    # This allows 'session_id', 'conversation_id', or 'cid'
+    conversation_id: str = Field(..., alias="session_id")
+
+    # This allows 'message', 'text', or 'content'
+    message: str = Field(..., alias="text")
+
+    class Config:
+        # Allow both alias and field name
+        populate_by_name = True
 
 class EngagementMetrics(BaseModel):
     conversation_turns: int

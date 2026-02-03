@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 class MessageRequest(BaseModel):
@@ -10,10 +10,11 @@ class EngagementMetrics(BaseModel):
     engagement_duration_seconds: float
 
 class ExtractedIntelligence(BaseModel):
-    bank_accounts: List[str] = []
-    upi_ids: List[str] = []
-    phishing_urls: List[str] = []
-    wallet_addresses: List[str] = []
+    bank_accounts: List[str] = Field(default_factory=list)
+    upi_ids: List[str] = Field(default_factory=list)
+    phishing_urls: List[str] = Field(default_factory=list)
+    ifsc_codes: List[str] = Field(default_factory=list)
+    wallet_addresses: List[str] = Field(default_factory=list)
     additional_notes: Optional[str] = ""
 
 class HoneypotResponse(BaseModel):

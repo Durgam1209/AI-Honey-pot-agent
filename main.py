@@ -19,6 +19,10 @@ logging.basicConfig(
 
 app = FastAPI(title="Agentic Honeypot API")
 
+@app.get("/")
+def health_check():
+    return {"status": "Agent is awake!", "endpoint": "/honeypot/stream"}
+
 @app.post("/honeypot/message", response_model=HoneypotResponse)
 def handle_message(data: MessageRequest, x_api_key: str = Header(None)):
     if x_api_key != API_KEY:

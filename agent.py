@@ -1,4 +1,5 @@
 from google import genai
+from google.genai.types import HarmCategory, HarmBlockThreshold
 import json
 import logging
 import time
@@ -122,7 +123,18 @@ def generate_agent_response(history: List[str]) -> Dict:
     regex_intel = _extract_intelligence(context)
 
     try:
-        response = _client.models.generate_content(model=MODEL_NAME, contents=prompt)
+        response = _client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            config={
+                "safety_settings": [
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "BLOCK_NONE"
+                    }
+                ]
+            }
+        )
         raw_text = (response.text or "").strip()
         parsed = _extract_json(raw_text)
         if parsed:

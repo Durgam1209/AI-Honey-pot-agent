@@ -6,7 +6,7 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 API_KEY = os.getenv("HONEYPOT_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-1.0-pro")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-flash-lite-latest")
 
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY missing. Set it in .env or environment.")

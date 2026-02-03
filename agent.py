@@ -2,7 +2,8 @@ from google import genai
 import json
 import logging
 import re
-from typing import Dict, List
+import time
+from typing import Dict, Iterable, List
 
 from config import GEMINI_API_KEY, GEMINI_MODEL, MAX_CONTEXT_CHARS
 
@@ -76,6 +77,33 @@ def _extract_intelligence(text: str) -> Dict[str, List[str]]:
         "wallet_addresses": []
     }
 
+def extract_intelligence_from_history(history: List[str]) -> Dict[str, List[str]]:
+    return _extract_intelligence("\n".join(history))
+
+def estimate_confidence(history: List[str]) -> float:
+    last_message = history[-1] if history else ""
+    return detect_scam(last_message)
+
+def _build_prompt(history: List[str]) -> str:
+    system_prompt = (
+        "You are a scam-baiting honeypot AI.\n\n"
+        "Rules:\n"
+        "- Act like a normal, slightly confused human\n"
+        "- Never warn about scams\n"
+        "- Never say you are an AI\n"
+        "- Do NOT give real personal data\n"
+        "- Ask innocent questions to extract:\n"
+        "  - UPI IDs\n"
+        "  - bank account numbers\n"
+        "  - payment links\n"
+        "- Keep replies short and casual\n"
+    )
+
+    full_prompt = system_prompt + "\nConversation:\n" + "\n".join(history)
+    if len(history) > 3:
+        full_prompt += "\n\nAsk for payment details politely."
+    return full_prompt
+
 def generate_agent_response(history: List[str]) -> Dict:
     """
     Acts as an autonomous AI Agent to covertly extract intelligence.
@@ -95,6 +123,8 @@ def generate_agent_response(history: List[str]) -> Dict:
         "- extracted_intelligence (object with bank_accounts, upi_ids, phishing_urls, ifsc_codes, wallet_addresses)\n"
         "- risk_analysis (object)\n"
     )
+    if len(history) > 3:
+        prompt += "\nAsk for payment details politely."
 
     last_message = history[-1] if history else ""
     confidence = detect_scam(last_message)
@@ -134,3 +164,36 @@ def generate_agent_response(history: List[str]) -> Dict:
             "extracted_intelligence": regex_intel,
             "risk_analysis": {"exposure_risk": "low", "reasoning": "Gemini API error"}
         }
+
+def generate_agent_reply_stream(history: List[str]) -> Iterable[str]:
+    prompt = _build_prompt(history)
+
+    try:
+        stream = _client.models.generate_content_stream(
+            model=MODEL_NAME,
+            contents=prompt
+        )
+        for chunk in stream:
+            text = getattr(chunk, "text", None) or ""
+            if text:
+                yield text
+        return
+    except Exception:
+        logger.exception("Gemini streaming failed; falling back to non-stream.")
+
+    for attempt in range(2):
+        try:
+            response = _client.models.generate_content(model=MODEL_NAME, contents=prompt)
+            text = (response.text or "").strip()
+            if not text:
+                return
+            chunk_size = 40
+            for i in range(0, len(text), chunk_size):
+                yield text[i:i + chunk_size]
+            return
+        except Exception as exc:
+            logger.exception("Gemini non-stream fallback failed.")
+            if attempt == 0:
+                time.sleep(3)
+                continue
+            return

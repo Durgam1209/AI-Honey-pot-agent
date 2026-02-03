@@ -92,6 +92,14 @@ def handle_message_stream(data: MessageRequest, x_api_key: str = Header(None)):
             base_response["agent_reply"] = reply
             yield f"data: {json.dumps(base_response)}\n\n"
         yield f"data: {json.dumps(base_response)}\n\n"
+
+        if confidence >= 0.5:
+            final_extracted = extract_intelligence_from_history(history)
+            log_scam(
+                session_id=data.conversation_id,
+                intel=final_extracted,
+                confidence=confidence
+            )
         
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

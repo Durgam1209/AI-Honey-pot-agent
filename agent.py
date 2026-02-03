@@ -1,11 +1,12 @@
 from google import genai
 import json
 import logging
-import re
 import time
 from typing import Dict, Iterable, List
 
 from config import GEMINI_API_KEY, GEMINI_MODEL, MAX_CONTEXT_CHARS
+from extract_intel import extract_intel
+from bait_reply import bait_reply
 
 MODEL_NAME = GEMINI_MODEL
 SYSTEM_INSTRUCTION = (
@@ -49,40 +50,17 @@ def _extract_json(text: str) -> Dict | None:
     except json.JSONDecodeError:
         return None
 
-def _dedupe(items: List[str]) -> List[str]:
-    seen = set()
-    out: List[str] = []
-    for item in items:
-        if item not in seen:
-            seen.add(item)
-            out.append(item)
-    return out
-
-def _extract_intelligence(text: str) -> Dict[str, List[str]]:
-    urls = re.findall(r"\bhttps?://[^\s]+|\bwww\.[^\s]+", text, flags=re.IGNORECASE)
-    urls = [u.rstrip(").,;\"'") for u in urls]
-
-    upi_ids = re.findall(r"\b[\w.\-]{2,256}@[a-zA-Z]{2,64}\b", text)
-
-    ifsc_codes = re.findall(r"\b[A-Z]{4}0[A-Z0-9]{6}\b", text.upper())
-
-    # Bank account numbers: 9-18 digits (exclude very short OTP-like numbers)
-    bank_accounts = re.findall(r"\b\d{9,18}\b", text)
-
-    return {
-        "bank_accounts": _dedupe(bank_accounts),
-        "upi_ids": _dedupe(upi_ids),
-        "phishing_urls": _dedupe(urls),
-        "ifsc_codes": _dedupe(ifsc_codes),
-        "wallet_addresses": []
-    }
-
 def extract_intelligence_from_history(history: List[str]) -> Dict[str, List[str]]:
-    return _extract_intelligence("\n".join(history))
+    return extract_intel("\n".join(history))
 
 def estimate_confidence(history: List[str]) -> float:
     last_message = history[-1] if history else ""
     return detect_scam(last_message)
+
+def generate_reply(history: List[str], scam_confidence: float = 0.0) -> str:
+    if scam_confidence >= 0.6:
+        return bait_reply(history)
+    return "Okay, I’ll check and get back to you."
 
 def _build_prompt(history: List[str]) -> str:
     system_prompt = (
@@ -150,7 +128,7 @@ def generate_agent_response(history: List[str]) -> Dict:
             "scam_detected": confidence >= 0.5,
             "confidence_score": confidence,
             "agent_mode": "engaged" if confidence >= 0.5 else "monitoring",
-            "agent_reply": raw_text or "I'm not sure I understand.",
+            "agent_reply": raw_text or generate_reply(history, confidence),
             "extracted_intelligence": regex_intel,
             "risk_analysis": {"exposure_risk": "low", "reasoning": "Model reply without JSON envelope"}
         }
@@ -160,7 +138,7 @@ def generate_agent_response(history: List[str]) -> Dict:
             "scam_detected": confidence >= 0.5,
             "confidence_score": confidence,
             "agent_mode": "engaged" if confidence >= 0.5 else "monitoring",
-            "agent_reply": "I'm having trouble responding right now. Can you repeat that?",
+            "agent_reply": generate_reply(history, confidence),
             "extracted_intelligence": regex_intel,
             "risk_analysis": {"exposure_risk": "low", "reasoning": "Gemini API error"}
         }

@@ -50,6 +50,19 @@ def _extract_json(text: str) -> Dict | None:
     except json.JSONDecodeError:
         return None
 
+def _dedupe(items: List[str]) -> List[str]:
+    seen = set()
+    result: List[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
+
+def _extract_intelligence(text: str) -> Dict[str, List[str]]:
+    return extract_intel(text)
+
 def extract_intelligence_from_history(history: List[str]) -> Dict[str, List[str]]:
     return extract_intel("\n".join(history))
 

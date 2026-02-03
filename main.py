@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import StreamingResponse, JSONResponse
 from extract_intel import extract_intel
 from logger import log_scam
 
@@ -65,12 +65,36 @@ def handle_message(data: MessageRequest, x_api_key: str = Header(None)):
     )
 
 @app.post("/honeypot/stream")
-def handle_message_stream(data: MessageRequest, x_api_key: str = Header(None)):
+def handle_message_stream(
+    data: MessageRequest,
+    request: Request,
+    x_api_key: str = Header(None)
+):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
     add_message(data.conversation_id, data.message)
     history = get_history(data.conversation_id)
+
+    accept_header = (request.headers.get("accept") or "").lower()
+    if "text/event-stream" not in accept_header:
+        agent_data = generate_agent_response(history)
+        metrics = EngagementMetrics(
+            conversation_turns=len(history),
+            engagement_duration_seconds=time.monotonic() - get_start_time(data.conversation_id)
+        )
+        extracted_intelligence = agent_data.get("extracted_intelligence", {})
+
+        return JSONResponse(
+            content=HoneypotResponse(
+                scam_detected=agent_data.get("scam_detected", False),
+                confidence_score=agent_data.get("confidence_score", 0.0),
+                agent_mode=agent_data.get("agent_mode", "monitoring"),
+                engagement_metrics=metrics,
+                extracted_intelligence=extracted_intelligence,
+                agent_reply=agent_data.get("agent_reply", "")
+            ).model_dump()
+        )
 
     def event_generator():
         confidence = estimate_confidence(history)
@@ -87,8 +111,14 @@ def handle_message_stream(data: MessageRequest, x_api_key: str = Header(None)):
             "agent_reply": ""
         }
         reply = ""
+        sent_any = False
         for chunk in generate_agent_reply_stream(history):
             reply += chunk
+            base_response["agent_reply"] = reply
+            sent_any = True
+            yield f"data: {json.dumps(base_response)}\n\n"
+        if not sent_any:
+            reply = generate_reply(history, confidence)
             base_response["agent_reply"] = reply
             yield f"data: {json.dumps(base_response)}\n\n"
         yield f"data: {json.dumps(base_response)}\n\n"

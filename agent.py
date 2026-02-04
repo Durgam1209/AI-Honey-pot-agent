@@ -113,7 +113,7 @@ def generate_agent_response(history: List[str]) -> Dict:
         "- confidence_score (float)\n"
         "- agent_mode (string)\n"
         "- agent_reply (string)\n"
-        "- extracted_intelligence (object with bank_accounts, upi_ids, phishing_urls, ifsc_codes, wallet_addresses)\n"
+        "- extracted_intelligence (object with bank_accounts, upi_ids, phishing_urls, ifsc_codes, phone_numbers, wallet_addresses)\n"
         "- risk_analysis (object)\n"
     )
     if len(history) > 3:
@@ -140,12 +140,14 @@ def generate_agent_response(history: List[str]) -> Dict:
             upi_ids = extracted.get("upi_ids") or []
             phishing_urls = extracted.get("phishing_urls") or []
             ifsc_codes = extracted.get("ifsc_codes") or []
+            phone_numbers = extracted.get("phone_numbers") or []
             wallet_addresses = extracted.get("wallet_addresses") or []
             merged = {
                 "bank_accounts": _dedupe(bank_accounts + regex_intel["bank_accounts"]),
                 "upi_ids": _dedupe(upi_ids + regex_intel["upi_ids"]),
                 "phishing_urls": _dedupe(phishing_urls + regex_intel["phishing_urls"]),
                 "ifsc_codes": _dedupe(ifsc_codes + regex_intel["ifsc_codes"]),
+                "phone_numbers": _dedupe(phone_numbers + regex_intel["phone_numbers"]),
                 "wallet_addresses": _dedupe(wallet_addresses + regex_intel["wallet_addresses"]),
             }
             parsed["extracted_intelligence"] = merged

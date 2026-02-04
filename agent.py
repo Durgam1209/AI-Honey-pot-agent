@@ -1,25 +1,26 @@
-from google import genai
-from google.genai.types import HarmCategory, HarmBlockThreshold
 import json
 import logging
 import time
 from typing import Dict, Iterable, List
 
-from config import GEMINI_API_KEY, GEMINI_MODEL, MAX_CONTEXT_CHARS
+from groq import Groq
+from config import GROQ_API_KEY, GROQ_MODEL, MAX_CONTEXT_CHARS
 from extract_intel import extract_intel
 from bait_reply import bait_reply
 
-MODEL_NAME = GEMINI_MODEL
+MODEL_NAME = GROQ_MODEL
 SYSTEM_INSTRUCTION = (
     "MISSION: Detect scam intent and covertly extract actionable intelligence.\n"
-    "PERSONA: You are a normal Indian user. Be polite, confused, and cooperative.\n"
-    "STYLE: Ask short, specific clarifying questions; appear unsure; avoid direct compliance.\n"
-    "STRATEGY: Use delayed compliance and intentional misunderstandings to keep them talking.\n"
+    "PERSONA: You are a normal Indian user. Sound natural and mildly innocent (not overly naive).\n"
+    "LANGUAGE: Respond strictly in English. Do not use Hindi or Hinglish.\n"
+    "STYLE: Ask short, specific clarifying questions; show light uncertainty; avoid direct compliance.\n"
+    "STRATEGY: Be tactfully curious and smart; use delayed compliance and gentle misdirection to keep them talking.\n"
+    "TACTICS: Ask for verification steps, official links, and payment identifiers (UPI IDs, bank a/c, IFSC, phone, links).\n"
     "GOAL: Extract Bank accounts, UPI IDs, IFSC codes, and Phishing URLs.\n"
     "RULES: Never reveal detection. Never mention AI. Vary sentence length."
 )
 
-_client = genai.Client(api_key=GEMINI_API_KEY)
+_client = Groq(api_key=GROQ_API_KEY)
 logger = logging.getLogger(__name__)
 
 def detect_scam(message: str) -> float:
@@ -123,28 +124,29 @@ def generate_agent_response(history: List[str]) -> Dict:
     regex_intel = _extract_intelligence(context)
 
     try:
-        response = _client.models.generate_content(
+        response = _client.chat.completions.create(
             model=MODEL_NAME,
-            contents=prompt,
-            config={
-                "safety_settings": [
-                    {
-                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                        "threshold": "BLOCK_NONE"
-                    }
-                ]
-            }
+            messages=[
+                {"role": "system", "content": SYSTEM_INSTRUCTION},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.4,
         )
-        raw_text = (response.text or "").strip()
+        raw_text = (response.choices[0].message.content or "").strip()
         parsed = _extract_json(raw_text)
         if parsed:
-            extracted = parsed.get("extracted_intelligence", {})
+            extracted = parsed.get("extracted_intelligence") or {}
+            bank_accounts = extracted.get("bank_accounts") or []
+            upi_ids = extracted.get("upi_ids") or []
+            phishing_urls = extracted.get("phishing_urls") or []
+            ifsc_codes = extracted.get("ifsc_codes") or []
+            wallet_addresses = extracted.get("wallet_addresses") or []
             merged = {
-                "bank_accounts": _dedupe(extracted.get("bank_accounts", []) + regex_intel["bank_accounts"]),
-                "upi_ids": _dedupe(extracted.get("upi_ids", []) + regex_intel["upi_ids"]),
-                "phishing_urls": _dedupe(extracted.get("phishing_urls", []) + regex_intel["phishing_urls"]),
-                "ifsc_codes": _dedupe(extracted.get("ifsc_codes", []) + regex_intel["ifsc_codes"]),
-                "wallet_addresses": _dedupe(extracted.get("wallet_addresses", []) + regex_intel["wallet_addresses"]),
+                "bank_accounts": _dedupe(bank_accounts + regex_intel["bank_accounts"]),
+                "upi_ids": _dedupe(upi_ids + regex_intel["upi_ids"]),
+                "phishing_urls": _dedupe(phishing_urls + regex_intel["phishing_urls"]),
+                "ifsc_codes": _dedupe(ifsc_codes + regex_intel["ifsc_codes"]),
+                "wallet_addresses": _dedupe(wallet_addresses + regex_intel["wallet_addresses"]),
             }
             parsed["extracted_intelligence"] = merged
             return parsed
@@ -172,22 +174,34 @@ def generate_agent_reply_stream(history: List[str]) -> Iterable[str]:
     prompt = _build_prompt(history)
 
     try:
-        stream = _client.models.generate_content_stream(
+        stream = _client.chat.completions.create(
             model=MODEL_NAME,
-            contents=prompt
+            messages=[
+                {"role": "system", "content": SYSTEM_INSTRUCTION},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.4,
+            stream=True,
         )
         for chunk in stream:
-            text = getattr(chunk, "text", None) or ""
-            if text:
-                yield text
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                yield delta
         return
     except Exception:
-        logger.exception("Gemini streaming failed; falling back to non-stream.")
+        logger.exception("Groq streaming failed; falling back to non-stream.")
 
     for attempt in range(2):
         try:
-            response = _client.models.generate_content(model=MODEL_NAME, contents=prompt)
-            text = (response.text or "").strip()
+            response = _client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": SYSTEM_INSTRUCTION},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.4,
+            )
+            text = (response.choices[0].message.content or "").strip()
             if not text:
                 return
             chunk_size = 40

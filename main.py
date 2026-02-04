@@ -20,6 +20,7 @@ logging.basicConfig(
 app = FastAPI(title="Agentic Honeypot API")
 
 @app.get("/")
+@app.head("/")
 def health_check():
     return {"status": "Agent is awake!", "endpoint": "/honeypot/stream"}
 

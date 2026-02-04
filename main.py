@@ -36,6 +36,7 @@ async def handle_message(data: MessageRequest, x_api_key: str = Header(None)):
     history = [m.text for m in history_items]
     
     # 2. Get AI analysis
+    logging.info("History passed to LLM: %s", history)
     agent_data = generate_agent_response(history)
     
     # 3. Mandatory Callback Trigger

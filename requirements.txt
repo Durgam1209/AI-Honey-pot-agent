@@ -4,3 +4,4 @@ pydantic
 python-dotenv
 groq
 redis
+requests

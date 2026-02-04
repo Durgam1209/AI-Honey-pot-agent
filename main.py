@@ -1,16 +1,13 @@
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
-from extract_intel import extract_intel
-from logger import log_scam
-
 import json
 import logging
-import time
 
-from schemas import MessageRequest, HoneypotResponse, EngagementMetrics, ExtractedIntelligence
+from schemas import MessageRequest, HoneypotResponse
 from config import API_KEY
-from memory import add_message, get_history, get_start_time
-from agent import generate_agent_response, generate_agent_reply_stream, estimate_confidence, extract_intelligence_from_history, generate_reply, detect_scam
+from memory import add_message, get_history
+from agent import generate_agent_response, generate_agent_reply_stream, generate_reply
+from callback import send_final_callback
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,53 +22,32 @@ def health_check():
     return {"status": "Agent is awake!", "endpoint": "/honeypot/stream"}
 
 @app.post("/honeypot/message", response_model=HoneypotResponse)
-async def handle_message(request: Request, x_api_key: str = Header(None)):
+async def handle_message(data: MessageRequest, x_api_key: str = Header(None)):
     if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API Key")
+        raise HTTPException(status_code=401)
 
-    raw_body = await request.json()
-    print(f"DEBUG - Incoming Tester Data: {raw_body}")
-    data = MessageRequest.model_validate(raw_body)
-
-    add_message(data.conversation_id, data.message)
-    history = get_history(data.conversation_id)
-
-    confidence = detect_scam(data.message)
-    is_scam = confidence >= 0.6
-    if is_scam:
-        reply = generate_reply(history, confidence)
-        mode = "engaged"
-    else:
-        reply = generate_reply(history, confidence)
-        mode = "monitoring"
-
-    # 1. Let the Agent analyze the whole history and return the full JSON object
+    # 1. Extract the scam message
+    scam_text = data.message.text
+    history = [m["text"] for m in data.conversationHistory] + [scam_text]
+    
+    # 2. Get AI analysis
     agent_data = generate_agent_response(history)
-
-    # 2. Update metrics
-    metrics = EngagementMetrics(
-        conversation_turns=len(history),
-        engagement_duration_seconds=time.monotonic() - get_start_time(data.conversation_id)
-    )
-
-    extracted_intelligence = agent_data.get("extracted_intelligence", {})
-    if is_scam:
-        log_scam(
-            session_id=data.conversation_id,
-            intel=extracted_intelligence,
-            confidence=confidence
+    
+    # 3. Mandatory Callback Trigger
+    # Rule: Send if scam is confirmed AND we have at least 5 messages
+    if agent_data.get("scam_detected") and len(history) >= 5:
+        send_final_callback(
+            session_id=data.sessionId,
+            history=history,
+            intelligence=agent_data.get("extracted_intelligence", {}),
+            notes=agent_data.get("reasoning", "Engaged scammer via Anjali persona.")
         )
 
-    # 3. Return the AI's full autonomous analysis directly
-    return HoneypotResponse(
-        scam_detected=agent_data.get("scam_detected", is_scam),
-        confidence_score=agent_data.get("confidence_score", confidence),
-        agent_mode=agent_data.get("agent_mode", mode),
-        engagement_metrics=metrics,
-        extracted_intelligence=extracted_intelligence,
-        agent_reply=agent_data.get("agent_reply", reply)
-    
-    )
+    # 4. Return the EXACT keys required by Section 8
+    return {
+        "status": "success",
+        "reply": agent_data.get("agent_reply")
+    }
 
 @app.post("/honeypot/stream")
 def handle_message_stream(
@@ -80,65 +56,39 @@ def handle_message_stream(
     x_api_key: str = Header(None)
 ):
     if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API Key")
+        raise HTTPException(status_code=401)
 
-    add_message(data.conversation_id, data.message)
-    history = get_history(data.conversation_id)
+    if data.conversationHistory:
+        for item in data.conversationHistory:
+            add_message(data.sessionId, item.get("text", ""))
+
+    add_message(data.sessionId, data.message.text)
+    history = get_history(data.sessionId)
 
     accept_header = (request.headers.get("accept") or "").lower()
     if "text/event-stream" not in accept_header:
         agent_data = generate_agent_response(history)
-        metrics = EngagementMetrics(
-            conversation_turns=len(history),
-            engagement_duration_seconds=time.monotonic() - get_start_time(data.conversation_id)
-        )
-        extracted_intelligence = agent_data.get("extracted_intelligence", {})
-
-        return JSONResponse(
-            content=HoneypotResponse(
-                scam_detected=agent_data.get("scam_detected", False),
-                confidence_score=agent_data.get("confidence_score", 0.0),
-                agent_mode=agent_data.get("agent_mode", "monitoring"),
-                engagement_metrics=metrics,
-                extracted_intelligence=extracted_intelligence,
-                agent_reply=agent_data.get("agent_reply", "")
-            ).model_dump()
-        )
+        return JSONResponse(content={
+            "status": "success",
+            "reply": agent_data.get("agent_reply")
+        })
 
     def event_generator():
-        confidence = estimate_confidence(history)
-        extracted = extract_intelligence_from_history(history)
         base_response = {
-            "scam_detected": confidence >= 0.5,
-            "confidence_score": confidence,
-            "agent_mode": "engaged" if confidence >= 0.5 else "monitoring",
-            "engagement_metrics": {
-                "conversation_turns": len(history),
-                "engagement_duration_seconds": time.monotonic() - get_start_time(data.conversation_id),
-            },
-            "extracted_intelligence": extracted,
-            "agent_reply": ""
+            "status": "success",
+            "reply": ""
         }
         reply = ""
         sent_any = False
         for chunk in generate_agent_reply_stream(history):
             reply += chunk
-            base_response["agent_reply"] = reply
+            base_response["reply"] = reply
             sent_any = True
             yield f"data: {json.dumps(base_response)}\n\n"
         if not sent_any:
-            reply = generate_reply(history, confidence)
-            base_response["agent_reply"] = reply
+            reply = generate_reply(history, 0.0)
+            base_response["reply"] = reply
             yield f"data: {json.dumps(base_response)}\n\n"
         yield f"data: {json.dumps(base_response)}\n\n"
-
-        if confidence >= 0.5:
-            final_extracted = extract_intelligence_from_history(history)
-            log_scam(
-                session_id=data.conversation_id,
-                intel=final_extracted,
-                confidence=confidence
-            )
-        
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

@@ -11,9 +11,9 @@ from bait_reply import bait_reply
 MODEL_NAME = GROQ_MODEL
 SYSTEM_INSTRUCTION = (
     "MISSION: Detect scam intent and covertly extract actionable intelligence.\n"
-    "PERSONA: You are the potential victim (the user), not the scammer. Sound natural and mildly innocent (not overly naive).\n"
+    "PERSONA: You are the potential victim (the user), not the scammer. Sound natural, mildly innocent, and a bit cautious.\n"
     "LANGUAGE: Respond strictly in English. Do not use Hindi or Hinglish.\n"
-    "STYLE: Ask short, specific clarifying questions; show light uncertainty; avoid direct compliance.\n"
+    "STYLE: Keep replies short (1-2 sentences). Ask specific clarifying questions. Show light uncertainty. Avoid apologies and avoid direct compliance.\n"
     "STRATEGY: Be tactfully curious and smart; use delayed compliance and gentle misdirection to keep them talking.\n"
     "TACTICS: Ask for verification steps, official links, and payment identifiers (UPI IDs, bank a/c, IFSC, phone, links).\n"
     "GOAL: Extract Bank accounts, UPI IDs, IFSC codes, and Phishing URLs.\n"
@@ -75,7 +75,7 @@ def estimate_confidence(history: List[str]) -> float:
 def generate_reply(history: List[str], scam_confidence: float = 0.0) -> str:
     if scam_confidence >= 0.6:
         return bait_reply(history)
-    return "Okay, I'll check and get back to you."
+    return "I’m not sure. What exactly do you need me to do?"
 
 def _build_prompt(history: List[str]) -> str:
     system_prompt = (

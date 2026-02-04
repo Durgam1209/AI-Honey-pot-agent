@@ -17,7 +17,7 @@ class MessageMetadata(BaseModel):
 class MessageRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    session_id: str = Field(alias="sessionId")
+    session_id: str
     message: MessageContent
     conversationHistory: List[MessageContent] = Field(default_factory=list)
     metadata: Optional[MessageMetadata] = None

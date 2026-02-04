@@ -3,7 +3,7 @@ import logging
 
 from schemas import MessageRequest, HoneypotResponse
 from config import API_KEY
-from redis_store import append_message, get_history, set_history, mark_callback_sent
+from redis_store import append_message, get_history, set_history, mark_callback_sent, redis_available
 from agent import generate_agent_response
 from callback import send_final_callback
 
@@ -13,6 +13,11 @@ logging.basicConfig(
 )
 
 app = FastAPI(title="Agentic Honeypot API")
+
+@app.on_event("startup")
+def warn_if_redis_unavailable():
+    if not redis_available():
+        logging.warning("Redis unavailable at startup; falling back to in-memory store.")
 
 @app.get("/")
 @app.head("/")

@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 import logging
 
 from schemas import MessageRequest, HoneypotResponse
@@ -24,9 +26,27 @@ def warn_if_redis_unavailable():
 def health_check():
     return {"status": "Agent is awake!", "endpoint": "/honeypot/message"}
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logging.error("VAL_ERROR: %s", exc.errors())
+    body = await request.body()
+    logging.error("RECEIVED_BODY: %s", body.decode(errors="replace"))
+    return JSONResponse(
+        status_code=422,
+        content={
+            "status": "error",
+            "message": "Invalid Request Body",
+            "details": exc.errors(),
+        },
+    )
+
 @app.post("/honeypot/message", response_model=HoneypotResponse)
-async def handle_message(data: MessageRequest, x_api_key: str = Header(None)):
-    if x_api_key != API_KEY:
+async def handle_message(
+    data: MessageRequest,
+    x_api_key: str | None = Header(None, alias="x-api-key"),
+):
+    if not API_KEY or x_api_key != API_KEY:
+        logging.warning("Auth failed. Expected %s, got %s", API_KEY, x_api_key)
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     # 1. Resolve history (client-provided overrides server state)

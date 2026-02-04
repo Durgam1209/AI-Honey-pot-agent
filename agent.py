@@ -17,7 +17,7 @@ SYSTEM_INSTRUCTION = (
     "STRATEGY: Be tactfully curious and smart; use delayed compliance and gentle misdirection to keep them talking.\n"
     "TACTICS: Ask for verification steps, official links, and payment identifiers (UPI IDs, bank a/c, IFSC, phone, links).\n"
     "GOAL: Extract Bank accounts, UPI IDs, IFSC codes, and Phishing URLs.\n"
-    "RULES: Never reveal detection. Never mention AI. Never ask for victim credentials. Vary sentence length."
+    "RULES: Never reveal detection. Never mention AI. Never ask for victim credentials. If you notice a mistake or inconsistency, correct yourself naturally in the next reply. Vary sentence length."
 )
 
 _client = Groq(api_key=GROQ_API_KEY)

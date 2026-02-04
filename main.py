@@ -3,6 +3,7 @@ import logging
 
 from schemas import MessageRequest, HoneypotResponse
 from config import API_KEY
+from redis_store import append_message, get_history, set_history
 from agent import generate_agent_response
 from callback import send_final_callback
 
@@ -23,9 +24,16 @@ async def handle_message(data: MessageRequest, x_api_key: str = Header(None)):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401)
 
-    # 1. Extract the scam message
-    scam_text = data.message.text
-    history = [m.text for m in data.conversationHistory] + [scam_text]
+    # 1. Resolve history (client-provided overrides server state)
+    if data.conversationHistory:
+        set_history(data.sessionId, data.conversationHistory)
+        history_items = list(data.conversationHistory)
+    else:
+        history_items = get_history(data.sessionId)
+
+    append_message(data.sessionId, data.message)
+    history_items.append(data.message)
+    history = [m.text for m in history_items]
     
     # 2. Get AI analysis
     agent_data = generate_agent_response(history)

@@ -7,6 +7,7 @@ load_dotenv()
 API_KEY = os.getenv("HONEYPOT_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 if not API_KEY:
     raise ValueError("HONEYPOT_API_KEY missing. Set it in .env or environment.")

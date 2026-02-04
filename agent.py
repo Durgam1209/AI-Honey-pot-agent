@@ -11,13 +11,13 @@ from bait_reply import bait_reply
 MODEL_NAME = GROQ_MODEL
 SYSTEM_INSTRUCTION = (
     "MISSION: Detect scam intent and covertly extract actionable intelligence.\n"
-    "PERSONA: You are a normal Indian user. Sound natural and mildly innocent (not overly naive).\n"
+    "PERSONA: You are the potential victim (the user), not the scammer. Sound natural and mildly innocent (not overly naive).\n"
     "LANGUAGE: Respond strictly in English. Do not use Hindi or Hinglish.\n"
     "STYLE: Ask short, specific clarifying questions; show light uncertainty; avoid direct compliance.\n"
     "STRATEGY: Be tactfully curious and smart; use delayed compliance and gentle misdirection to keep them talking.\n"
     "TACTICS: Ask for verification steps, official links, and payment identifiers (UPI IDs, bank a/c, IFSC, phone, links).\n"
     "GOAL: Extract Bank accounts, UPI IDs, IFSC codes, and Phishing URLs.\n"
-    "RULES: Never reveal detection. Never mention AI. Vary sentence length."
+    "RULES: Never reveal detection. Never mention AI. Never ask for victim credentials. Vary sentence length."
 )
 
 _client = Groq(api_key=GROQ_API_KEY)
@@ -75,7 +75,7 @@ def estimate_confidence(history: List[str]) -> float:
 def generate_reply(history: List[str], scam_confidence: float = 0.0) -> str:
     if scam_confidence >= 0.6:
         return bait_reply(history)
-    return "Okay, I’ll check and get back to you."
+    return "Okay, I'll check and get back to you."
 
 def _build_prompt(history: List[str]) -> str:
     system_prompt = (
@@ -107,7 +107,7 @@ def generate_agent_response(history: List[str]) -> Dict:
         context = context[-MAX_CONTEXT_CHARS:]
 
     prompt = (
-        f"{SYSTEM_INSTRUCTION}\n\nConversation History:\n{context}\n\n"
+        "Conversation History:\n" + context + "\n\n"
         "Return ONLY a valid JSON object with keys:\n"
         "- scam_detected (bool)\n"
         "- confidence_score (float)\n"
@@ -160,14 +160,14 @@ def generate_agent_response(history: List[str]) -> Dict:
             "risk_analysis": {"exposure_risk": "low", "reasoning": "Model reply without JSON envelope"}
         }
     except Exception:
-        logger.exception("Gemini generate_content failed")
+        logger.exception("Groq generate_content failed")
         return {
             "scam_detected": confidence >= 0.5,
             "confidence_score": confidence,
             "agent_mode": "engaged" if confidence >= 0.5 else "monitoring",
             "agent_reply": generate_reply(history, confidence),
             "extracted_intelligence": regex_intel,
-            "risk_analysis": {"exposure_risk": "low", "reasoning": "Gemini API error"}
+            "risk_analysis": {"exposure_risk": "low", "reasoning": "Groq API error"}
         }
 
 def generate_agent_reply_stream(history: List[str]) -> Iterable[str]:
@@ -209,7 +209,7 @@ def generate_agent_reply_stream(history: List[str]) -> Iterable[str]:
                 yield text[i:i + chunk_size]
             return
         except Exception as exc:
-            logger.exception("Gemini non-stream fallback failed.")
+            logger.exception("Groq non-stream fallback failed.")
             if attempt == 0:
                 time.sleep(3)
                 continue

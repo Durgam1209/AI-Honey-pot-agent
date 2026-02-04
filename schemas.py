@@ -14,7 +14,7 @@ class MessageMetadata(BaseModel):
 
 # The main request body
 class MessageRequest(BaseModel):
-    sessionId: str
+    session_id: str
     message: MessageContent
     conversationHistory: List[MessageContent] = Field(default_factory=list)
     metadata: Optional[MessageMetadata] = None

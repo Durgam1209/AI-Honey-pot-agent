@@ -86,12 +86,14 @@ def _sanitize_history(history: List[str]) -> List[str]:
         "honeypot testing completed",
     ]
     allowed_prefixes = ("scammer:", "honeypot:", "user:", "assistant:")
+    role_only = {"scammer", "honeypot", "user", "assistant"}
     cleaned: List[str] = []
     for entry in history:
         if not entry:
             continue
         lines = entry.splitlines()
         kept_lines: List[str] = []
+        pending_role: str | None = None
         for line in lines:
             raw = line.strip()
             low = raw.lower()
@@ -99,11 +101,19 @@ def _sanitize_history(history: List[str]) -> List[str]:
                 continue
             if any(phrase in low for phrase in blocked_phrases):
                 continue
+            if low in role_only:
+                pending_role = low
+                continue
             if low.startswith(allowed_prefixes):
                 kept_lines.append(raw)
+                pending_role = None
                 continue
             # If no prefix, drop obviously instructional lines
             if any(tok in low for tok in ["must", "should", "instruction", "output", "json", "keys", "format"]):
+                continue
+            if pending_role:
+                kept_lines.append(f"{pending_role.capitalize()}: {raw}")
+                pending_role = None
                 continue
         if kept_lines:
             cleaned.append("\n".join(kept_lines))

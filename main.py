@@ -160,6 +160,15 @@ async def _handle_message_universal(
 
     # 4. Return the EXACT keys required by Section 8
     reply_text = agent_data.get("agent_reply") or SAFE_FALLBACK_REPLY
+
+    # Hard guard: avoid repeating the exact same honeypot reply
+    last_honeypot = ""
+    for item in reversed(history_items):
+        if getattr(item, "sender", "").lower() == "honeypot":
+            last_honeypot = item.text or ""
+            break
+    if last_honeypot and reply_text.strip().lower() == last_honeypot.strip().lower():
+        reply_text = reply_text.rstrip(". ") + ". Also, can you share the official helpline or IFSC code?"
     reply_message = MessageContent(
         sender="honeypot",
         text=reply_text,

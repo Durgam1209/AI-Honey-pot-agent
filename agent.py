@@ -223,6 +223,21 @@ def _detect_repetition(history: List[str]) -> bool:
     prev = recent[-2].lower()
     return last == prev or (len(last) > 0 and last in prev) or (len(prev) > 0 and prev in last)
 
+def _missing_intel(history: List[str]) -> List[str]:
+    intel = extract_intel("\n".join(history))
+    missing = []
+    if not intel.get("upi_ids"):
+        missing.append("upi_id")
+    if not intel.get("bank_accounts"):
+        missing.append("bank_account")
+    if not intel.get("ifsc_codes"):
+        missing.append("ifsc_code")
+    if not intel.get("phone_numbers"):
+        missing.append("phone_number")
+    if not intel.get("phishing_urls"):
+        missing.append("phishing_url")
+    return missing
+
 def estimate_confidence(history: List[str]) -> float:
     last_message = history[-1] if history else ""
     return detect_scam(last_message)
@@ -268,12 +283,14 @@ def generate_agent_response(history: List[str], persona_facts: List[str] | None 
     tone = _scammer_tone(sanitized_history)
     emotion = "stressed and confused" if tone == "aggressive" else base_emotion
     repeated = _detect_repetition(sanitized_history)
+    missing = _missing_intel(sanitized_history)
 
     prompt = (
         "Conversation History:\n" + context + "\n\n"
         f"Emotional state: {emotion}\n"
         + ("Note: You recently repeated yourself; acknowledge and rephrase naturally.\n" if repeated else "")
         + (f"Consistency facts to maintain: {', '.join(persona_facts)}\n" if persona_facts else "")
+        + (f"Missing intel to prioritize asking about: {', '.join(missing)}\n" if missing else "")
         + "Engagement tactic: Use foot-in-the-door. Start with small benign compliance, then delay or hedge on bigger requests.\n"
         + "\n"
         "Return ONLY a valid JSON object with keys:\n"

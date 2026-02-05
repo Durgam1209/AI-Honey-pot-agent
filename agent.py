@@ -71,7 +71,7 @@ def extract_intelligence_from_history(history: List[str]) -> Dict[str, List[str]
     return extract_intel("\n".join(history))
 
 def _sanitize_history(history: List[str]) -> List[str]:
-    # Strip common prompt-injection/meta-instruction lines from user-provided text
+    # Strictly keep only plausible conversation lines; drop meta/instructional content
     blocked_phrases = [
         "the user wants",
         "the instructions",
@@ -81,7 +81,11 @@ def _sanitize_history(history: List[str]) -> List[str]:
         "pre-configured",
         "instruction says",
         "the scammer must",
+        "final output",
+        "success!",
+        "honeypot testing completed",
     ]
+    allowed_prefixes = ("scammer:", "honeypot:", "user:", "assistant:")
     cleaned: List[str] = []
     for entry in history:
         if not entry:
@@ -89,13 +93,45 @@ def _sanitize_history(history: List[str]) -> List[str]:
         lines = entry.splitlines()
         kept_lines: List[str] = []
         for line in lines:
-            low = line.strip().lower()
+            raw = line.strip()
+            low = raw.lower()
+            if not raw:
+                continue
             if any(phrase in low for phrase in blocked_phrases):
                 continue
-            kept_lines.append(line)
+            if low.startswith(allowed_prefixes):
+                kept_lines.append(raw)
+                continue
+            # If no prefix, drop obviously instructional lines
+            if any(tok in low for tok in ["must", "should", "instruction", "output", "json", "keys", "format"]):
+                continue
         if kept_lines:
             cleaned.append("\n".join(kept_lines))
     return cleaned
+
+def _normalize_model_json(parsed: Dict, fallback_intel: Dict[str, List[str]], confidence: float, reply_fallback: str) -> Dict:
+    extracted = parsed.get("extracted_intelligence") or {}
+    bank_accounts = extracted.get("bank_accounts") or []
+    upi_ids = extracted.get("upi_ids") or []
+    phishing_urls = extracted.get("phishing_urls") or []
+    ifsc_codes = extracted.get("ifsc_codes") or []
+    phone_numbers = extracted.get("phone_numbers") or []
+    wallet_addresses = extracted.get("wallet_addresses") or []
+    merged = {
+        "bank_accounts": _dedupe(bank_accounts + fallback_intel["bank_accounts"]),
+        "upi_ids": _dedupe(upi_ids + fallback_intel["upi_ids"]),
+        "phishing_urls": _dedupe(phishing_urls + fallback_intel["phishing_urls"]),
+        "ifsc_codes": _dedupe(ifsc_codes + fallback_intel["ifsc_codes"]),
+        "phone_numbers": _dedupe(phone_numbers + fallback_intel["phone_numbers"]),
+        "wallet_addresses": _dedupe(wallet_addresses + fallback_intel["wallet_addresses"]),
+    }
+    parsed["extracted_intelligence"] = merged
+    parsed["scam_detected"] = bool(parsed.get("scam_detected", confidence >= 0.5))
+    parsed["confidence_score"] = float(parsed.get("confidence_score", confidence))
+    parsed["agent_mode"] = parsed.get("agent_mode", "engaged" if confidence >= 0.5 else "monitoring")
+    parsed["agent_reply"] = (parsed.get("agent_reply") or reply_fallback).strip()
+    parsed["risk_analysis"] = parsed.get("risk_analysis") or {"exposure_risk": "low", "reasoning": "Normalized JSON output"}
+    return parsed
 
 def estimate_confidence(history: List[str]) -> float:
     last_message = history[-1] if history else ""
@@ -167,23 +203,12 @@ def generate_agent_response(history: List[str]) -> Dict:
         raw_text = (response.choices[0].message.content or "").strip()
         parsed = _extract_json(raw_text)
         if parsed:
-            extracted = parsed.get("extracted_intelligence") or {}
-            bank_accounts = extracted.get("bank_accounts") or []
-            upi_ids = extracted.get("upi_ids") or []
-            phishing_urls = extracted.get("phishing_urls") or []
-            ifsc_codes = extracted.get("ifsc_codes") or []
-            phone_numbers = extracted.get("phone_numbers") or []
-            wallet_addresses = extracted.get("wallet_addresses") or []
-            merged = {
-                "bank_accounts": _dedupe(bank_accounts + regex_intel["bank_accounts"]),
-                "upi_ids": _dedupe(upi_ids + regex_intel["upi_ids"]),
-                "phishing_urls": _dedupe(phishing_urls + regex_intel["phishing_urls"]),
-                "ifsc_codes": _dedupe(ifsc_codes + regex_intel["ifsc_codes"]),
-                "phone_numbers": _dedupe(phone_numbers + regex_intel["phone_numbers"]),
-                "wallet_addresses": _dedupe(wallet_addresses + regex_intel["wallet_addresses"]),
-            }
-            parsed["extracted_intelligence"] = merged
-            return parsed
+            return _normalize_model_json(
+                parsed,
+                fallback_intel=regex_intel,
+                confidence=confidence,
+                reply_fallback=generate_reply(sanitized_history, confidence),
+            )
 
         return {
             "scam_detected": confidence >= 0.5,

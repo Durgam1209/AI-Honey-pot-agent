@@ -11,6 +11,7 @@ from redis_store import append_message, get_history, set_history, mark_callback_
 from agent import generate_agent_response, extract_intelligence_from_history, extract_persona_facts_from_history
 from memory import update_persona_facts, get_persona_facts
 from callback import send_final_callback
+from logger import log_message_event
 
 logging.basicConfig(
     level=logging.INFO,
@@ -137,6 +138,7 @@ async def _handle_message_universal(
     # 3. Mandatory Callback Trigger
     # Rule: Send if scam is confirmed AND we have at least 5 messages
     extracted = agent_data.get("extracted_intelligence", {})
+    suspicious_phrases = (agent_data.get("risk_analysis") or {}).get("suspicious_phrases") or []
     has_intel = any(extracted.get(key) for key in [
         "bank_accounts",
         "upi_ids",
@@ -164,6 +166,26 @@ async def _handle_message_universal(
         timestamp=int(time.time() * 1000),
     )
     append_message(session_id, reply_message)
+
+    # Log incoming and outgoing messages to CSV
+    log_message_event(
+        session_id=session_id,
+        sender=message.sender,
+        message=message.text,
+        intel=extracted,
+        confidence=agent_data.get("confidence_score"),
+        scam_detected=agent_data.get("scam_detected"),
+        suspicious_phrases=suspicious_phrases,
+    )
+    log_message_event(
+        session_id=session_id,
+        sender="honeypot",
+        message=reply_text,
+        intel=extracted,
+        confidence=agent_data.get("confidence_score"),
+        scam_detected=agent_data.get("scam_detected"),
+        suspicious_phrases=suspicious_phrases,
+    )
 
     # Simulated typing delay to reduce bot-like responses and smooth rate limits
     time.sleep(0.4)

@@ -2,6 +2,8 @@ import logging
 
 import requests
 
+from logger import log_summary_event
+
 SUSPICIOUS_KEYWORDS = [
     "urgent",
     "verify",
@@ -69,6 +71,7 @@ def _build_agent_notes(history_text: str, intelligence: dict, risk_analysis: dic
 def send_final_callback(session_id, history, intelligence, notes=None, risk_analysis=None):
     history_text = "\n".join(history)
     agent_notes = notes or _build_agent_notes(history_text, intelligence, risk_analysis)
+    sophistication = _assess_sophistication(history_text, intelligence)
     payload = {
         "sessionId": session_id,
         "scamDetected": True,
@@ -82,6 +85,17 @@ def send_final_callback(session_id, history, intelligence, notes=None, risk_anal
         },
         "agentNotes": agent_notes
     }
+
+    # Always append a summary row to the CSV log
+    suspicious_phrases = []
+    if isinstance(risk_analysis, dict):
+        suspicious_phrases = risk_analysis.get("suspicious_phrases") or []
+    log_summary_event(
+        session_id=session_id,
+        intel=intelligence,
+        suspicious_phrases=suspicious_phrases,
+        sophistication=sophistication,
+    )
     
     try:
         url = "https://hackathon.guvi.in/api/updateHoneyPotFinalResult"

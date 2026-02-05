@@ -36,17 +36,25 @@ def get_history(session_id: str) -> List[MessageContent]:
         return result
     except RedisConnectionError:
         # Fallback to in-memory store if Redis is unavailable
-        return [
-            MessageContent(sender="user", text=msg, timestamp=0)
-            for msg in mem_get_history(session_id)
-        ]
+        result: List[MessageContent] = []
+        for msg in mem_get_history(session_id):
+            if isinstance(msg, MessageContent):
+                result.append(msg)
+            elif isinstance(msg, dict):
+                try:
+                    result.append(MessageContent(**msg))
+                except Exception:
+                    continue
+            else:
+                result.append(MessageContent(sender="user", text=str(msg), timestamp=0))
+        return result
 
 
 def append_message(session_id: str, message: MessageContent) -> None:
     try:
         _client.rpush(_key(session_id), json.dumps(message.model_dump()))
     except RedisConnectionError:
-        mem_add_message(session_id, message.text)
+        mem_add_message(session_id, message)
 
 
 def set_history(session_id: str, messages: List[MessageContent]) -> None:
@@ -59,7 +67,7 @@ def set_history(session_id: str, messages: List[MessageContent]) -> None:
         pipeline.execute()
     except RedisConnectionError:
         # Replace in-memory history
-        mem_conversations[session_id]["history"] = [m.text for m in messages]
+        mem_conversations[session_id]["history"] = list(messages)
 
 def mark_callback_sent(session_id: str) -> bool:
     """

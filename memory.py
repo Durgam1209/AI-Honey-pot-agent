@@ -3,6 +3,7 @@ from threading import Lock
 import time
 
 from config import MAX_HISTORY
+from schemas import MessageContent
 
 _lock = Lock()
 
@@ -18,7 +19,7 @@ conversations = defaultdict(lambda: {
     }
 })
 
-def add_message(conversation_id: str, message: str) -> dict:
+def add_message(conversation_id: str, message: MessageContent) -> dict:
     with _lock:
         convo = conversations[conversation_id]
         convo["history"].append(message)

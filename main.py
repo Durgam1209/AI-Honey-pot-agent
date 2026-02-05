@@ -138,9 +138,17 @@ async def _handle_message_universal(
         )
 
     # 4. Return the EXACT keys required by Section 8
+    reply_text = agent_data.get("agent_reply") or ""
+    reply_message = MessageContent(
+        sender="honeypot",
+        text=reply_text,
+        timestamp=int(time.time() * 1000),
+    )
+    append_message(session_id, reply_message)
+
     return {
         "status": "success",
-        "reply": agent_data.get("agent_reply")
+        "reply": reply_text
     }
 
 @app.post("/honeypot/message", response_model=HoneypotResponse)

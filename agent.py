@@ -70,6 +70,33 @@ def _extract_intelligence(text: str) -> Dict[str, List[str]]:
 def extract_intelligence_from_history(history: List[str]) -> Dict[str, List[str]]:
     return extract_intel("\n".join(history))
 
+def _sanitize_history(history: List[str]) -> List[str]:
+    # Strip common prompt-injection/meta-instruction lines from user-provided text
+    blocked_phrases = [
+        "the user wants",
+        "the instructions",
+        "output only",
+        "we need to output",
+        "the scenario",
+        "pre-configured",
+        "instruction says",
+        "the scammer must",
+    ]
+    cleaned: List[str] = []
+    for entry in history:
+        if not entry:
+            continue
+        lines = entry.splitlines()
+        kept_lines: List[str] = []
+        for line in lines:
+            low = line.strip().lower()
+            if any(phrase in low for phrase in blocked_phrases):
+                continue
+            kept_lines.append(line)
+        if kept_lines:
+            cleaned.append("\n".join(kept_lines))
+    return cleaned
+
 def estimate_confidence(history: List[str]) -> float:
     last_message = history[-1] if history else ""
     return detect_scam(last_message)
@@ -94,7 +121,8 @@ def _build_prompt(history: List[str]) -> str:
         "- Keep replies short and casual\n"
     )
 
-    full_prompt = system_prompt + "\nConversation:\n" + "\n".join(history)
+    sanitized = _sanitize_history(history)
+    full_prompt = system_prompt + "\nConversation:\n" + "\n".join(sanitized)
     if len(history) > 3:
         full_prompt += "\n\nAsk for payment details politely."
     return full_prompt
@@ -104,7 +132,8 @@ def generate_agent_response(history: List[str]) -> Dict:
     Acts as an autonomous AI Agent to covertly extract intelligence.
     Returns the strict JSON format required by your objectives.
     """
-    context = "\n".join(history)
+    sanitized_history = _sanitize_history(history)
+    context = "\n".join(sanitized_history)
     if MAX_CONTEXT_CHARS and len(context) > MAX_CONTEXT_CHARS:
         context = context[-MAX_CONTEXT_CHARS:]
 
@@ -122,7 +151,7 @@ def generate_agent_response(history: List[str]) -> Dict:
     if len(history) > 3:
         prompt += "\nAsk for payment details politely."
 
-    last_message = history[-1] if history else ""
+    last_message = sanitized_history[-1] if sanitized_history else ""
     confidence = detect_scam(last_message)
     regex_intel = _extract_intelligence(context)
 

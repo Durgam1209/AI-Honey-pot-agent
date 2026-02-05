@@ -2,8 +2,10 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import logging
+import time
+from typing import Any
 
-from schemas import MessageRequest, HoneypotResponse
+from schemas import MessageContent, HoneypotResponse
 from config import API_KEY
 from redis_store import append_message, get_history, set_history, mark_callback_sent, redis_available
 from agent import generate_agent_response
@@ -40,24 +42,71 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         },
     )
 
-@app.post("/honeypot/message", response_model=HoneypotResponse)
-async def handle_message(
-    data: MessageRequest,
-    x_api_key: str | None = Header(None, alias="x-api-key"),
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+def _coerce_message(raw: Any, fallback_text: str) -> MessageContent:
+    now_ms = int(time.time() * 1000)
+    if isinstance(raw, dict):
+        sender = raw.get("sender") or "user"
+        text = raw.get("text") or raw.get("message") or fallback_text or ""
+        timestamp = _safe_int(raw.get("timestamp"), now_ms)
+    elif isinstance(raw, str):
+        sender = "user"
+        text = raw
+        timestamp = now_ms
+    else:
+        sender = "user"
+        text = fallback_text or ""
+        timestamp = now_ms
+
+    return MessageContent(sender=sender, text=text, timestamp=timestamp)
+
+async def _read_json_or_empty(request: Request) -> dict:
+    try:
+        payload = await request.json()
+        if isinstance(payload, dict):
+            return payload
+        return {}
+    except Exception:
+        return {}
+
+async def _handle_message_universal(
+    request: Request,
+    x_api_key: str | None,
 ):
-    if not API_KEY or x_api_key != API_KEY:
+    if API_KEY and x_api_key != API_KEY:
         logging.warning("Auth failed. Expected %s, got %s", API_KEY, x_api_key)
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # 1. Resolve history (client-provided overrides server state)
-    if data.conversationHistory:
-        set_history(data.session_id, data.conversationHistory)
-        history_items = list(data.conversationHistory)
-    else:
-        history_items = get_history(data.session_id)
+    payload = await _read_json_or_empty(request)
+    session_id = (
+        payload.get("sessionId")
+        or payload.get("session_id")
+        or payload.get("session")
+        or f"anonymous-{int(time.time() * 1000)}"
+    )
 
-    append_message(data.session_id, data.message)
-    history_items.append(data.message)
+    message_raw = payload.get("message") if isinstance(payload, dict) else None
+    message = _coerce_message(message_raw, fallback_text=payload.get("text", ""))
+
+    history_raw = payload.get("conversationHistory") or payload.get("conversation_history")
+    history_items = []
+    if isinstance(history_raw, list):
+        for item in history_raw:
+            history_items.append(_coerce_message(item, fallback_text=""))
+
+    # 1. Resolve history (client-provided overrides server state)
+    if history_items:
+        set_history(session_id, history_items)
+    else:
+        history_items = get_history(session_id)
+
+    append_message(session_id, message)
+    history_items.append(message)
     history = [m.text for m in history_items]
     
     # 2. Get AI analysis
@@ -77,9 +126,9 @@ async def handle_message(
     ])
 
     should_callback = agent_data.get("scam_detected") and (len(history) >= 5 or has_intel)
-    if should_callback and mark_callback_sent(data.session_id):
+    if should_callback and mark_callback_sent(session_id):
         send_final_callback(
-            session_id=data.session_id,
+            session_id=session_id,
             history=history,
             intelligence=extracted,
             notes=agent_data.get("reasoning", "Engaged scammer via user persona.")
@@ -90,3 +139,18 @@ async def handle_message(
         "status": "success",
         "reply": agent_data.get("agent_reply")
     }
+
+@app.post("/honeypot/message", response_model=HoneypotResponse)
+async def handle_message(
+    request: Request,
+    x_api_key: str | None = Header(None, alias="x-api-key"),
+):
+    return await _handle_message_universal(request, x_api_key)
+
+# Robust fallback: accept POSTs to "/" and route to honeypot logic
+@app.post("/", response_model=HoneypotResponse)
+async def handle_root_post(
+    request: Request,
+    x_api_key: str | None = Header(None, alias="x-api-key"),
+):
+    return await _handle_message_universal(request, x_api_key)

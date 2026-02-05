@@ -8,7 +8,8 @@ from typing import Any
 from schemas import MessageContent, HoneypotResponse
 from config import API_KEY
 from redis_store import append_message, get_history, set_history, mark_callback_sent, redis_available
-from agent import generate_agent_response, extract_intelligence_from_history
+from agent import generate_agent_response, extract_intelligence_from_history, extract_persona_facts_from_history
+from memory import update_persona_facts, get_persona_facts
 from callback import send_final_callback
 
 logging.basicConfig(
@@ -112,11 +113,16 @@ async def _handle_message_universal(
         f"{m.sender}: {m.text}" if m.sender else m.text
         for m in history_items
     ]
+
+    # Maintain persona memory across turns
+    persona_facts = extract_persona_facts_from_history(history)
+    update_persona_facts(session_id, persona_facts)
+    persona_facts = get_persona_facts(session_id)
     
     # 2. Get AI analysis
     logging.info("History passed to LLM: %s", history)
     try:
-        agent_data = generate_agent_response(history)
+        agent_data = generate_agent_response(history, persona_facts=persona_facts)
     except Exception:
         logging.exception("Agent response failed; using safe fallback reply.")
         agent_data = {

@@ -44,18 +44,25 @@ def _build_agent_notes(history_text: str, intelligence: dict, risk_analysis: dic
     keywords = _extract_suspicious_keywords(history_text)
     sophistication = _assess_sophistication(history_text, intelligence)
     suspicious_phrases = []
+    identifier_links = []
     if isinstance(risk_analysis, dict):
         suspicious_phrases = risk_analysis.get("suspicious_phrases") or []
+        identifier_links = risk_analysis.get("identifier_links") or []
 
     parts = []
     if keywords:
         parts.append(f"Scammer leveraged urgency/verification cues ({', '.join(sorted(set(keywords)))}).")
+    if suspicious_phrases:
+        parts.append(f"Session-specific scam phrases: {', '.join(suspicious_phrases[:5])}.")
     if intelligence.get("upi_ids") or intelligence.get("bank_accounts") or intelligence.get("phone_numbers"):
         parts.append("Agent attempted to extract payment identifiers through verification-style questions.")
     if intelligence.get("phishing_urls"):
         parts.append("Scammer included a link, indicating potential phishing redirection.")
-    if suspicious_phrases:
-        parts.append(f"Notable scam phrases: {', '.join(suspicious_phrases[:4])}.")
+    if identifier_links:
+        sample = identifier_links[:2]
+        mapped = "; ".join([f"{item.get('identifier')} -> {item.get('url')}" for item in sample if isinstance(item, dict)])
+        if mapped:
+            parts.append(f"Identifier-link pairing observed: {mapped}.")
     parts.append(f"Sophistication assessment: {sophistication}.")
     return " ".join(parts)
 

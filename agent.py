@@ -72,6 +72,9 @@ def _extract_intelligence(text: str) -> Dict[str, List[str]]:
 def extract_intelligence_from_history(history: List[str]) -> Dict[str, List[str]]:
     return extract_intel("\n".join(history))
 
+def extract_persona_facts_from_history(history: List[str]) -> List[str]:
+    return _extract_persona_facts(history)
+
 def _sanitize_history(history: List[str]) -> List[str]:
     # Strictly keep only plausible conversation lines; drop meta/instructional content
     blocked_phrases = [
@@ -146,6 +149,7 @@ def _normalize_model_json(parsed: Dict, fallback_intel: Dict[str, List[str]], co
     if not isinstance(risk, dict):
         risk = {}
     risk.setdefault("suspicious_phrases", [])
+    risk.setdefault("identifier_links", [])
     parsed["risk_analysis"] = risk or {"exposure_risk": "low", "reasoning": "Normalized JSON output", "suspicious_phrases": []}
     return parsed
 
@@ -157,6 +161,27 @@ def _emotional_state(history: List[str]) -> str:
     if turns <= 4:
         return "concerned and cautious"
     return "mildly panicked but trying to cooperate"
+
+def _scammer_tone(history: List[str]) -> str:
+    # Heuristic tone detection from last scammer line
+    last_scammer = ""
+    for line in reversed(history):
+        if line.lower().startswith("scammer:"):
+            last_scammer = line.split(":", 1)[-1].strip()
+            break
+    if not last_scammer:
+        return "neutral"
+    low = last_scammer.lower()
+    aggressive_markers = [
+        "urgent", "immediately", "now", "blocked", "suspended",
+        "legal action", "police", "fraud", "last chance",
+        "your account will", "final warning",
+    ]
+    excessive_caps = sum(1 for c in last_scammer if c.isupper()) >= 10
+    exclamations = last_scammer.count("!") >= 2
+    if any(m in low for m in aggressive_markers) or excessive_caps or exclamations:
+        return "aggressive"
+    return "neutral"
 
 def _extract_persona_facts(history: List[str]) -> List[str]:
     # Lightweight consistency tracker based on prior self-references
@@ -228,7 +253,7 @@ def _build_prompt(history: List[str]) -> str:
         full_prompt += "\n\nAsk for payment details politely."
     return full_prompt
 
-def generate_agent_response(history: List[str]) -> Dict:
+def generate_agent_response(history: List[str], persona_facts: List[str] | None = None) -> Dict:
     """
     Acts as an autonomous AI Agent to covertly extract intelligence.
     Returns the strict JSON format required by your objectives.
@@ -238,8 +263,10 @@ def generate_agent_response(history: List[str]) -> Dict:
     if MAX_CONTEXT_CHARS and len(context) > MAX_CONTEXT_CHARS:
         context = context[-MAX_CONTEXT_CHARS:]
 
-    persona_facts = _extract_persona_facts(sanitized_history)
-    emotion = _emotional_state(sanitized_history)
+    persona_facts = persona_facts or _extract_persona_facts(sanitized_history)
+    base_emotion = _emotional_state(sanitized_history)
+    tone = _scammer_tone(sanitized_history)
+    emotion = "stressed and confused" if tone == "aggressive" else base_emotion
     repeated = _detect_repetition(sanitized_history)
 
     prompt = (
@@ -247,6 +274,7 @@ def generate_agent_response(history: List[str]) -> Dict:
         f"Emotional state: {emotion}\n"
         + ("Note: You recently repeated yourself; acknowledge and rephrase naturally.\n" if repeated else "")
         + (f"Consistency facts to maintain: {', '.join(persona_facts)}\n" if persona_facts else "")
+        + "Engagement tactic: Use foot-in-the-door. Start with small benign compliance, then delay or hedge on bigger requests.\n"
         + "\n"
         "Return ONLY a valid JSON object with keys:\n"
         "- scam_detected (bool)\n"
@@ -254,7 +282,7 @@ def generate_agent_response(history: List[str]) -> Dict:
         "- agent_mode (string)\n"
         "- agent_reply (string)\n"
         "- extracted_intelligence (object with bank_accounts, upi_ids, phishing_urls, ifsc_codes, phone_numbers, wallet_addresses)\n"
-        "- risk_analysis (object with suspicious_phrases: array of exact phrases used by the scammer in this session)\n"
+        "- risk_analysis (object with suspicious_phrases: array of exact phrases used by the scammer in this session, and identifier_links: array of objects mapping identifier->url if mentioned together)\n"
         "Do NOT include analysis, role labels, or any extra text.\n"
     )
     if len(history) > 3:

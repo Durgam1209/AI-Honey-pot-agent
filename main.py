@@ -8,7 +8,7 @@ from typing import Any
 from schemas import MessageContent, HoneypotResponse
 from config import API_KEY
 from redis_store import append_message, get_history, set_history, mark_callback_sent, redis_available
-from agent import generate_agent_response
+from agent import generate_agent_response, extract_intelligence_from_history
 from callback import send_final_callback
 
 logging.basicConfig(
@@ -17,6 +17,7 @@ logging.basicConfig(
 )
 
 app = FastAPI(title="Agentic Honeypot API")
+SAFE_FALLBACK_REPLY = "I'm not sure about this. Could you please share the official helpline or website so I can verify?"
 
 @app.on_event("startup")
 def warn_if_redis_unavailable():
@@ -114,7 +115,18 @@ async def _handle_message_universal(
     
     # 2. Get AI analysis
     logging.info("History passed to LLM: %s", history)
-    agent_data = generate_agent_response(history)
+    try:
+        agent_data = generate_agent_response(history)
+    except Exception:
+        logging.exception("Agent response failed; using safe fallback reply.")
+        agent_data = {
+            "scam_detected": False,
+            "confidence_score": 0.0,
+            "agent_mode": "monitoring",
+            "agent_reply": SAFE_FALLBACK_REPLY,
+            "extracted_intelligence": extract_intelligence_from_history(history),
+            "risk_analysis": {"exposure_risk": "low", "reasoning": "Fallback due to agent error"},
+        }
     
     # 3. Mandatory Callback Trigger
     # Rule: Send if scam is confirmed AND we have at least 5 messages
@@ -134,17 +146,21 @@ async def _handle_message_universal(
             session_id=session_id,
             history=history,
             intelligence=extracted,
-            notes=agent_data.get("reasoning", "Engaged scammer via user persona.")
+            notes=agent_data.get("reasoning"),
+            risk_analysis=agent_data.get("risk_analysis"),
         )
 
     # 4. Return the EXACT keys required by Section 8
-    reply_text = agent_data.get("agent_reply") or ""
+    reply_text = agent_data.get("agent_reply") or SAFE_FALLBACK_REPLY
     reply_message = MessageContent(
         sender="honeypot",
         text=reply_text,
         timestamp=int(time.time() * 1000),
     )
     append_message(session_id, reply_message)
+
+    # Simulated typing delay to reduce bot-like responses and smooth rate limits
+    time.sleep(0.4)
 
     return {
         "status": "success",

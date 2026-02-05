@@ -39,7 +39,7 @@ def extract_intel(text: str):
     bank_pattern = r"\b(?:\d[ -]?){9,20}\b"
     ifsc_pattern = r"\b[A-Z0-9][A-Z0-9\s-]{8,20}[A-Z0-9]\b"
     url_pattern = r"https?://[^\s]+"
-    phone_pattern = r"(?:\+?91[-\s]?)?[6-9]\d{9}\b"
+    phone_pattern = r"\b(?:\+?91[-\s]?)?[6-9]\d{9}\b"
 
     upis_raw = [u for u in re.findall(upi_pattern, text) if "http" not in u.lower()]
     upis = {_normalize_upi(u) for u in upis_raw}

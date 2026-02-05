@@ -120,6 +120,8 @@ def _sanitize_history(history: List[str]) -> List[str]:
                 kept_lines.append(f"{pending_role.capitalize()}: {raw}")
                 pending_role = None
                 continue
+            # Keep legitimate unprefixed content so intel extraction still works
+            kept_lines.append(raw)
         if kept_lines:
             cleaned.append("\n".join(kept_lines))
     return cleaned

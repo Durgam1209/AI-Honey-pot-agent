@@ -107,7 +107,10 @@ async def _handle_message_universal(
 
     append_message(session_id, message)
     history_items.append(message)
-    history = [m.text for m in history_items]
+    history = [
+        f"{m.sender}: {m.text}" if m.sender else m.text
+        for m in history_items
+    ]
     
     # 2. Get AI analysis
     logging.info("History passed to LLM: %s", history)

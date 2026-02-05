@@ -6,7 +6,7 @@ def extract_intel(text: str):
     bank_pattern = r"\b\d{9,18}\b"
     ifsc_pattern = r"\b[A-Z]{4}0[A-Z0-9]{6}\b"
     url_pattern = r"https?://[^\s]+"
-    phone_pattern = r"\+?91[6-9]\d{9}"
+    phone_pattern = r"(?:\+?91[-\s]?)?[6-9]\d{9}\b"
 
     return {
         "upi_ids": list(set(re.findall(upi_pattern, text))),
